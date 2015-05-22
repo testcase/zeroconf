@@ -1,5 +1,5 @@
 /*
-	Copyright (c) 2009 Remy Muller. 
+	Copyright (c) 2009 Remy Muller.
 	
 	Permission is hereby granted, free of charge, to any person obtaining
 	a copy of this software and associated documentation files
@@ -23,7 +23,7 @@
 	ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
 	CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 	WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+ */
 
 #include "../zeroconf/NetService.h"
 #include "../zeroconf/NetServiceThread.h"
@@ -33,100 +33,104 @@
 #include <iostream>
 //#include <sys/time.h>
 #include <dns_sd.h>
-
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/if.h>
 using namespace ZeroConf;
 
 typedef union { unsigned char b[2]; unsigned short NotAnInteger; } Opaque16;
 typedef union { unsigned short NotAnInteger; unsigned char b[2]; } Opaque16b;
 
-static void DNSSD_API register_reply(DNSServiceRef       sdRef, 
-                           DNSServiceFlags     flags, 
-                           DNSServiceErrorType errorCode, 
-                           const char          *name, 
-                           const char          *regtype, 
-                           const char          *domain, 
-                           void                *context )
+static void DNSSD_API register_reply(DNSServiceRef       sdRef,
+                                     DNSServiceFlags     flags,
+                                     DNSServiceErrorType errorCode,
+                                     const char          *name,
+                                     const char          *regtype,
+                                     const char          *domain,
+                                     void                *context )
 {
-  // do something with the values that have been registered
-  NetService *self = (NetService *)context;
+    // do something with the values that have been registered
+    NetService *self = (NetService *)context;
     
-  switch (errorCode)
-  {
-    case kDNSServiceErr_NoError:      
-      if(self->getListener())
-      {
-        self->getListener()->didPublish(self);
-      }      
-      break;
-    case kDNSServiceErr_NameConflict: 
-      if(self->getListener())
-      {
-        self->getListener()->didNotPublish(self);
-      }
-      break;
-    default:                          
-      if(self->getListener())
-      {
-        self->getListener()->didNotPublish(self);
-      }
-      return;
-  }
-}  
+    switch (errorCode)
+    {
+        case kDNSServiceErr_NoError:
+            if(self->getListener())
+            {
+                self->getListener()->didPublish(self);
+            }
+            break;
+        case kDNSServiceErr_NameConflict:
+            if(self->getListener())
+            {
+                self->getListener()->didNotPublish(self);
+            }
+            break;
+        default:
+            if(self->getListener())
+            {
+                self->getListener()->didNotPublish(self);
+            }
+            return;
+    }
+}
 
-static void DNSSD_API resolve_reply(DNSServiceRef client, 
-                                    const DNSServiceFlags flags, 
-                                    uint32_t ifIndex, 
+static void DNSSD_API resolve_reply(DNSServiceRef client,
+                                    const DNSServiceFlags flags,
+                                    uint32_t ifIndex,
                                     DNSServiceErrorType errorCode,
-                                    const char *fullname, 
-                                    const char *hosttarget, 
-                                    uint16_t opaqueport, 
-                                    uint16_t txtLen, 
-                                    const char *txtRecord, 
+                                    const char *fullname,
+                                    const char *hosttarget,
+                                    uint16_t opaqueport,
+                                    uint16_t txtLen,
+                                    const char *txtRecord,
                                     void *context)
 {
-  NetService *self = (NetService *)context;
-  
-  switch (errorCode)
-  {
-    case kDNSServiceErr_NoError:      
-    {   
-      Opaque16b port = { opaqueport };
-      uint16_t PortAsNumber = ((uint16_t)port.b[0]) << 8 | port.b[1];
-      self->setPort(PortAsNumber);
-      self->setHostName(hosttarget);
-        
-      if(self->getListener()) 
-      {  
-        self->getListener()->didResolveAddress(self);
-      }
-      break;
+    NetService *self = (NetService *)context;
+    
+    switch (errorCode)
+    {
+        case kDNSServiceErr_NoError:
+        {
+            Opaque16b port = { opaqueport };
+            uint16_t PortAsNumber = ((uint16_t)port.b[0]) << 8 | port.b[1];
+            self->setPort(PortAsNumber);
+            self->setHostName(hosttarget);
+            
+            if(self->getListener())
+            {
+                self->getListener()->didResolveAddress(self);
+            }
+            break;
+        }
+        default:
+            break;
     }
-    default:
-      break;
-  }
-  
-  // Note: When the desired results have been returned, 
-  // the client MUST terminate the resolve by calling DNSServiceRefDeallocate().
-  self->stop();    
+    
+    // Note: When the desired results have been returned,
+    // the client MUST terminate the resolve by calling DNSServiceRefDeallocate().
+    self->stop();
 }
 
 //------------------------------------------------------------------------------
-NetService::NetService(const std::string &domain, const std::string &type, const std::string &name, const int port)
+NetService::NetService(const std::string &domain, const std::string &type, const std::string &name, const std::string &interfaceName, const int port)
 : mDNSServiceRef(NULL)
 , mDomain(domain)
 , mType(type)
 , mName(name)
+, mInterface(interfaceName)
 , mPort(port)
 , mpListener(NULL)
 , mpNetServiceThread(NULL)
 {
 }
 
-NetService::NetService(const std::string &domain, const std::string &type, const std::string &name)
+NetService::NetService(const std::string &domain, const std::string &type, const std::string &name, const std::string &interfaceName)
 : mDNSServiceRef(NULL)
 , mDomain(domain)
 , mType(type)
 , mName(name)
+, mInterface(interfaceName)
 , mPort(-1)
 , mpListener(NULL)
 , mpNetServiceThread(NULL)
@@ -135,162 +139,168 @@ NetService::NetService(const std::string &domain, const std::string &type, const
 
 NetService::~NetService()
 {
-	stop();
-	}
+    stop();
+}
 
 void NetService::setListener(NetServiceListener *pNetServiceListener)
 {
-	mpListener = pNetServiceListener;
+    mpListener = pNetServiceListener;
 }
 
 NetServiceListener *NetService::getListener() const
 {
-	return mpListener; 
+    return mpListener;
 }
 
 void NetService::setPort(int port)
 {
-  mPort = port;
+    mPort = port;
 }
 
 void NetService::setName(const std::string &name)
 {
-  mName = name;
+    mName = name;
 }
 
 void NetService::setHostName(const std::string &name)
 {
-  mHostName = name;
+    mHostName = name;
 }
 
 void NetService::publish(bool launchThread)
 {
-  publishWithOptions(Options(0), launchThread);
+    publishWithOptions(Options(0), launchThread);
 }
 
 void NetService::publishWithOptions(Options options, bool launchThread)
 {
-	stop();
-	  
-  if(mPort<0)
-  {
-    if(mpListener)
-    {
-      mpListener->didNotPublish(this);
-    }
-    return;
-  } 
+    stop();
     
-  DNSServiceFlags flags	= options;		                 // default renaming behaviour 
-  uint32_t interfaceIndex = kDNSServiceInterfaceIndexAny;		// all interfaces 
-  const char *name		= mName.c_str();                   /* may be NULL */
-  const char *regtype		= mType.c_str(); 
-  const char *domain		= mDomain.c_str();		        /* may be NULL */
-  const char *host		= "";		                        /* may be NULL */
-  uint16_t PortAsNumber	= mPort;
-  Opaque16 registerPort   = { { PortAsNumber >> 8, PortAsNumber & 0xFF } };
-  uint16_t txtLen			= 0; 
-  const void *txtRecord	= "";		                        /* may be NULL */
-  DNSServiceRegisterReply callBack = (DNSServiceRegisterReply)&register_reply;	/* may be NULL */
-  void *context			= this;		                        /* may be NULL */
-  DNSServiceErrorType result = DNSServiceRegister(&mDNSServiceRef, 
-                                                  flags, 
-                                                  interfaceIndex, 
-                                                  name, 
-                                                  regtype, 
-                                                  domain, 
-                                                  host, 
-                                                  registerPort.NotAnInteger,
-                                                  txtLen, 
-                                                  txtRecord, 
-                                                  callBack, 
-                                                  context);
-  if(result != kDNSServiceErr_NoError)
-  {
-    if(mpListener)
+    if(mPort<0)
     {
-      mpListener->didNotPublish(this);
+        if(mpListener)
+        {
+            mpListener->didNotPublish(this);
+        }
+        return;
     }
-		if(mDNSServiceRef)
-			DNSServiceRefDeallocate(mDNSServiceRef);
-		mDNSServiceRef = NULL;			
-  }
-  else
-  {
-    if(mpListener)
+    
+    DNSServiceFlags flags	= options;		                 // default renaming behaviour
+    uint32_t interfaceIndex = kDNSServiceInterfaceIndexAny;		// all interfaces
+    const char *name		= mName.c_str();                   /* may be NULL */
+    const char *regtype		= mType.c_str();
+    const char *domain		= mDomain.c_str();		        /* may be NULL */
+    const char *host		= "";		                        /* may be NULL */
+    uint16_t PortAsNumber	= mPort;
+    Opaque16 registerPort   = { { PortAsNumber >> 8, PortAsNumber & 0xFF } };
+    uint16_t txtLen			= 0;
+    const void *txtRecord	= "";		                        /* may be NULL */
+    DNSServiceRegisterReply callBack = (DNSServiceRegisterReply)&register_reply;	/* may be NULL */
+    void *context			= this;		                        /* may be NULL */
+    
+    
+    if(mInterface.c_str()) {
+        interfaceIndex = if_nametoindex(mInterface.c_str());
+    }
+    
+    DNSServiceErrorType result = DNSServiceRegister(&mDNSServiceRef,
+                                                    flags,
+                                                    interfaceIndex,
+                                                    name,
+                                                    regtype,
+                                                    domain,
+                                                    host,
+                                                    registerPort.NotAnInteger,
+                                                    txtLen,
+                                                    txtRecord,
+                                                    callBack,
+                                                    context);
+    if(result != kDNSServiceErr_NoError)
     {
-      mpListener->willPublish(this);
+        if(mpListener)
+        {
+            mpListener->didNotPublish(this);
+        }
+        if(mDNSServiceRef)
+            DNSServiceRefDeallocate(mDNSServiceRef);
+        mDNSServiceRef = NULL;
     }
-		if(launchThread)
-		{
-			mpNetServiceThread = new NetServiceThread(mDNSServiceRef, 1.0);
-			mpNetServiceThread->startThread();
-		}
-  }  
+    else
+    {
+        if(mpListener)
+        {
+            mpListener->willPublish(this);
+        }
+        if(launchThread)
+        {
+            mpNetServiceThread = new NetServiceThread(mDNSServiceRef, 1.0);
+            mpNetServiceThread->startThread();
+        }
+    }
 }
 
 void NetService::resolveWithTimeout(double timeOutInSeconds, bool launchThread)
 {
-	stop();
-	
-  DNSServiceFlags flags	= 0;
-  uint32_t interfaceIndex = kDNSServiceInterfaceIndexAny;		// all interfaces 
-  DNSServiceErrorType err = DNSServiceResolve(&mDNSServiceRef,
-                                              flags,
-                                              interfaceIndex,
-                                              mName.c_str(),
-                                              mType.c_str(),
-                                              mDomain.c_str(),
-                                              (DNSServiceResolveReply)&resolve_reply,
-                                              this);
-  
-  if (!mDNSServiceRef || err != kDNSServiceErr_NoError) 
-  { 
-    if(mpListener)
+    stop();
+    
+    DNSServiceFlags flags	= 0;
+    uint32_t interfaceIndex = kDNSServiceInterfaceIndexAny;		// all interfaces
+    DNSServiceErrorType err = DNSServiceResolve(&mDNSServiceRef,
+                                                flags,
+                                                interfaceIndex,
+                                                mName.c_str(),
+                                                mType.c_str(),
+                                                mDomain.c_str(),
+                                                (DNSServiceResolveReply)&resolve_reply,
+                                                this);
+    
+    if (!mDNSServiceRef || err != kDNSServiceErr_NoError)
     {
-      mpListener->didNotResolve(this);
+        if(mpListener)
+        {
+            mpListener->didNotResolve(this);
+        }
+        if(mDNSServiceRef)
+            DNSServiceRefDeallocate(mDNSServiceRef);
+        mDNSServiceRef = NULL;
     }
-		if(mDNSServiceRef)
-			DNSServiceRefDeallocate(mDNSServiceRef);
-		mDNSServiceRef = NULL;			
-  }
-  else
-  {
-    if(mpListener)
+    else
     {
-      mpListener->willResolve(this);
+        if(mpListener)
+        {
+            mpListener->willResolve(this);
+        }
+        if(launchThread)
+        {
+            mpNetServiceThread = new NetServiceThread(mDNSServiceRef, 1.0);
+            mpNetServiceThread->startThread();
+        }
     }
-		if(launchThread)
-		{
-			mpNetServiceThread = new NetServiceThread(mDNSServiceRef, 1.0);
-			mpNetServiceThread->startThread();
-		}
-  }
 }
 
 void NetService::stop()
 {
-  if(mpNetServiceThread)
-  {
-    mpNetServiceThread->setThreadShouldExit();
-    mpNetServiceThread->waitForThreadToExit(100);
-    delete mpNetServiceThread;
-    mpNetServiceThread = NULL;
-  }
-	
-	if(mDNSServiceRef)
-	{
-		DNSServiceRefDeallocate(mDNSServiceRef);
-		mDNSServiceRef = NULL;
-	}	
+    if(mpNetServiceThread)
+    {
+        mpNetServiceThread->setThreadShouldExit();
+        mpNetServiceThread->waitForThreadToExit(100);
+        delete mpNetServiceThread;
+        mpNetServiceThread = NULL;
+    }
+    
+    if(mDNSServiceRef)
+    {
+        DNSServiceRefDeallocate(mDNSServiceRef);
+        mDNSServiceRef = NULL;
+    }	
 }
 
 void NetService::startMonitoring()
 {
-	assert(0);
+    assert(0);
 }
 
 void NetService::stopMonitoring()
 {
-	assert(0);
+    assert(0);
 }
