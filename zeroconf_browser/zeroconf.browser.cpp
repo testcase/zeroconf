@@ -72,16 +72,16 @@ public:
         setListener(this);
     }
     
-    void search(const std::string &type, const std::string &domain, bool launchThread)
+    void search(const std::string &type, const std::string &domain, const std::string &interface, bool launchThread)
     {
         if(!type.empty())
         {
             stop();
             {
-               ScopedLock lock(mCriticalSection);
+                ScopedLock lock(mCriticalSection);
                 mServices.clear();
             }
-            searchForServicesOfType(type, domain, launchThread);
+            searchForServicesOfType(type, domain, interface, launchThread);
         }
     }
     
@@ -94,7 +94,7 @@ private:
         t_atom at[1];
         outlet_anything(mpExternal->out, gensym("clear"), 0, NULL);
         
-      ScopedLock lock(mCriticalSection);
+        ScopedLock lock(mCriticalSection);
         for(std::set<std::string>::iterator it=mServices.begin(); it != mServices.end(); ++it)
         {
             atom_setsym(at, gensym(const_cast<char*>(it->c_str())));
@@ -105,7 +105,7 @@ private:
     virtual void didFindService(NetServiceBrowser* pNetServiceBrowser, NetService *pNetService, bool moreServicesComing)
     {
         {
-           ScopedLock lock(mCriticalSection);
+            ScopedLock lock(mCriticalSection);
             mServices.insert(pNetService->getName());
         }
         
@@ -163,7 +163,7 @@ void zeroconf_browser_poll(zeroconf_browser *x)
 
 void zeroconf_browser_bang(zeroconf_browser *x)
 {
-    x->mpBrowser->search(x->type->s_name, x->domain->s_name, false);
+    x->mpBrowser->search(x->type->s_name, x->domain->s_name, x->interface->s_name,false);
 }
 
 void zeroconf_browser_browse(zeroconf_browser *x, t_symbol *s, long argc, t_atom *argv)
@@ -205,6 +205,7 @@ void zeroconf_browser_assist(zeroconf_browser *x, void *b, long m, long a, char 
 void zeroconf_browser_free(zeroconf_browser *x)
 {
     clock_unset(x->clock);
+    
     if(x->mpBrowser)
     {
         delete x->mpBrowser;
@@ -225,7 +226,7 @@ void *zeroconf_browser_new(t_symbol *s, long argc, t_atom *argv)
         x->clock = clock_new((t_object *)x, (method)zeroconf_browser_poll);
         attr_args_process(x, argc, argv);
         
-        x->mpBrowser->search(x->type->s_name, x->domain->s_name, false);
+        x->mpBrowser->search(x->type->s_name, x->domain->s_name, x->interface->s_name, false);
         clock_delay(x->clock, 1000);
     }
     return (x);
@@ -237,7 +238,7 @@ int T_EXPORT main(void)
     
     class_addmethod(c, (method)zeroconf_browser_bang,       "bang",		0);
     class_addmethod(c, (method)zeroconf_browser_browse,			"browse",	A_GIMME, 0);
-    class_addmethod(c, (method)zeroconf_browser_assist,			"assist",	A_CANT, 0);  
+    class_addmethod(c, (method)zeroconf_browser_assist,			"assist",	A_CANT, 0);
     
     CLASS_ATTR_SYM(c, "type", 0, zeroconf_browser, type);
     CLASS_ATTR_SYM(c, "domain", 0, zeroconf_browser, domain);
