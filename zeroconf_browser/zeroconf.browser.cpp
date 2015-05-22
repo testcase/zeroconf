@@ -52,6 +52,7 @@ struct zeroconf_browser
     t_object ob;			// the object itself (must be first)
     t_symbol *type;
     t_symbol *domain;
+    t_symbol *interface;
     void *out;
     void *clock;
     Browser *mpBrowser;
@@ -219,6 +220,7 @@ void *zeroconf_browser_new(t_symbol *s, long argc, t_atom *argv)
         x->out = outlet_new(x, NULL);
         x->type = gensym("");
         x->domain = gensym("local.");
+        x->interface = gensym("");
         x->mpBrowser = new Browser(x);
         x->clock = clock_new((t_object *)x, (method)zeroconf_browser_poll);
         attr_args_process(x, argc, argv);
@@ -239,6 +241,7 @@ int T_EXPORT main(void)
     
     CLASS_ATTR_SYM(c, "type", 0, zeroconf_browser, type);
     CLASS_ATTR_SYM(c, "domain", 0, zeroconf_browser, domain);
+    CLASS_ATTR_SYM(c, "interface", 0, zeroconf_browser, interface);
     
     class_register(CLASS_BOX, c); /* CLASS_NOBOX */
     zeroconf_browser_class = c;
